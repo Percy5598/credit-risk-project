@@ -4,7 +4,7 @@ A machine learning web application for predicting credit risk using **FastAPI, P
 
 ### 🚀 Live Demo
 
-**[Credit Risk Project](https://credit-risk-project-fk18.onrender.com)**
+**[Credit Risk Project](https://credit-risk-project-mpl0.onrender.com/)**
 
 ### 🛠️ Technologies
 
