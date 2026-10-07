@@ -1,198 +1,164 @@
-const form = document.getElementById("loanForm");
+(() => {
+  const form = document.getElementById("riskForm");
+  const submitBtn = document.getElementById("submitBtn");
+  const errorNote = document.getElementById("errorNote");
+  const verdict = document.getElementById("verdict");
 
-const predictButton =
-    document.getElementById("predictButton");
+  const incomeInput = document.getElementById("person_income");
+  const amountInput = document.getElementById("loan_amnt");
+  const percentInput = document.getElementById("loan_percent_income");
 
-const errorMessage =
-    document.getElementById("errorMessage");
+  const gaugeFill = document.getElementById("gaugeFill");
+  const gaugeThreshold = document.getElementById("gaugeThreshold");
+  const probNumber = document.getElementById("probNumber");
+  const stampBadge = document.getElementById("stampBadge");
+  const stampText = document.getElementById("stampText");
 
-const result =
-    document.getElementById("result");
+  const factProb = document.getElementById("factProb");
+  const factThreshold = document.getElementById("factThreshold");
+  const factResult = document.getElementById("factResult");
 
-const riskResult =
-    document.getElementById("riskResult");
+  const apiDot = document.getElementById("apiDot");
+  const apiStatusText = document.getElementById("apiStatusText");
 
-const probabilityText =
-    document.getElementById("probabilityText");
+  const GAUGE_CIRCUMFERENCE = 540.35; // 2 * PI * 86, matches CSS
 
-const probabilityBar =
-    document.getElementById("probabilityBar");
+  // ---------- Auto-calculate loan-to-income ratio ----------
+  function recalcPercent() {
+    const income = parseFloat(incomeInput.value);
+    const amount = parseFloat(amountInput.value);
+    if (income > 0 && amount >= 0) {
+      percentInput.value = (amount / income).toFixed(2);
+    }
+  }
+  incomeInput.addEventListener("input", recalcPercent);
+  amountInput.addEventListener("input", recalcPercent);
+  recalcPercent();
 
-const predictionValue =
-    document.getElementById("predictionValue");
+  // ---------- Service status check ----------
+  fetch("/openapi.json", { method: "GET" })
+    .then((res) => {
+      if (res.ok) {
+        apiDot.classList.add("ok");
+        apiStatusText.textContent = "service ready";
+      } else {
+        throw new Error("bad status");
+      }
+    })
+    .catch(() => {
+      apiDot.classList.add("down");
+      apiStatusText.textContent = "service unreachable";
+    });
 
-const thresholdValue =
-    document.getElementById("thresholdValue");
+  // ---------- Helpers ----------
+  function setLoading(isLoading) {
+    submitBtn.disabled = isLoading;
+    submitBtn.classList.toggle("loading", isLoading);
+    submitBtn.querySelector(".btn-label").textContent = isLoading
+      ? "Reviewing file…"
+      : "Assess risk";
+  }
 
-const resetButton =
-    document.getElementById("resetButton");
+  function showError(message) {
+    errorNote.textContent = message;
+    errorNote.hidden = false;
+  }
 
+  function clearError() {
+    errorNote.hidden = true;
+    errorNote.textContent = "";
+  }
 
-form.addEventListener("submit", async function (event) {
+  function animateNumber(el, from, to, duration) {
+    const start = performance.now();
+    function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = from + (to - from) * eased;
+      el.textContent = value.toFixed(1);
+      if (t < 1) requestAnimationFrame(tick);
+      else el.textContent = to.toFixed(1);
+    }
+    requestAnimationFrame(tick);
+  }
 
-    event.preventDefault();
+  function renderVerdict(data) {
+    const probabilityPct = data.default_probability * 100;
+    const thresholdPct = data.threshold * 100;
+    const isHighRisk = data.default_prediction === 1;
 
-    errorMessage.classList.add("hidden");
-    result.classList.add("hidden");
+    verdict.hidden = false;
+    verdict.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-    predictButton.disabled = true;
-    predictButton.textContent = "Calculating...";
+    // Gauge fill
+    const offset = GAUGE_CIRCUMFERENCE * (1 - probabilityPct / 100);
+    gaugeFill.style.stroke = isHighRisk ? "var(--risk-red)" : "var(--brass)";
+    requestAnimationFrame(() => {
+      gaugeFill.style.strokeDashoffset = offset;
+    });
 
+    // Threshold tick
+    gaugeThreshold.style.transform = `rotate(${thresholdPct * 3.6}deg)`;
 
-    const formData = new FormData(form);
+    // Number readout
+    animateNumber(probNumber, 0, probabilityPct, 1000);
 
+    // Stamp
+    stampBadge.classList.remove("stamp--in", "risk-high");
+    void stampBadge.offsetWidth; // restart animation
+    if (isHighRisk) {
+      stampBadge.classList.add("risk-high");
+      stampText.textContent = "HIGH RISK";
+    } else {
+      stampText.textContent = "LOW RISK";
+    }
+    requestAnimationFrame(() => stampBadge.classList.add("stamp--in"));
 
-    const data = {
+    // Ledger facts
+    factProb.textContent = `${probabilityPct.toFixed(1)}%`;
+    factThreshold.textContent = `${thresholdPct.toFixed(1)}%`;
+    factResult.textContent = data.Result;
+  }
 
-        person_age:
-            Number(formData.get("person_age")),
+  // ---------- Submit ----------
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearError();
+    setLoading(true);
 
-        person_income:
-            Number(formData.get("person_income")),
-
-        person_home_ownership:
-            formData.get("person_home_ownership"),
-
-        person_emp_length:
-            Number(formData.get("person_emp_length")),
-
-        loan_intent:
-            formData.get("loan_intent"),
-
-        loan_grade:
-            formData.get("loan_grade"),
-
-        loan_amnt:
-            Number(formData.get("loan_amnt")),
-
-        loan_int_rate:
-            Number(formData.get("loan_int_rate")),
-
-        loan_percent_income:
-            Number(formData.get("loan_percent_income")),
-
-        cb_person_default_on_file:
-            formData.get("cb_person_default_on_file"),
-
-        cb_person_cred_hist_length:
-            Number(
-                formData.get(
-                    "cb_person_cred_hist_length"
-                )
-            )
+    const payload = {
+      person_age: parseInt(document.getElementById("person_age").value, 10),
+      person_income: parseFloat(incomeInput.value),
+      person_home_ownership: document.getElementById("person_home_ownership").value,
+      person_emp_length: parseFloat(document.getElementById("person_emp_length").value),
+      loan_intent: document.getElementById("loan_intent").value,
+      loan_grade: document.getElementById("loan_grade").value,
+      loan_amnt: parseFloat(amountInput.value),
+      loan_int_rate: parseFloat(document.getElementById("loan_int_rate").value),
+      loan_percent_income: parseFloat(percentInput.value),
+      cb_person_default_on_file: document.getElementById("cb_person_default_on_file").value,
+      cb_person_cred_hist_length: parseInt(document.getElementById("cb_person_cred_hist_length").value, 10),
     };
 
-
     try {
+      const res = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-        const response = await fetch(
-            "/predict",
-            {
-                method: "POST",
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const detail = body && body.detail ? JSON.stringify(body.detail) : `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
 
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify(data)
-            }
-        );
-
-
-        const responseData =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                responseData.detail ||
-                `HTTP error ${response.status}`
-            );
-        }
-
-
-        const probability =
-            Number(
-                responseData.default_probability
-            );
-
-        const percentage =
-            probability * 100;
-
-
-        riskResult.textContent =
-            responseData.Result;
-
-
-        probabilityText.textContent =
-            `${percentage.toFixed(2)}%`;
-
-
-        probabilityBar.style.width =
-            `${Math.min(percentage, 100)}%`;
-
-
-        predictionValue.textContent =
-            responseData.default_prediction;
-
-
-        thresholdValue.textContent =
-            Number(
-                responseData.threshold
-            ).toFixed(4);
-
-
-        result.classList.remove("hidden");
-
-
-        result.scrollIntoView({
-            behavior: "smooth"
-        });
-
+      const data = await res.json();
+      renderVerdict(data);
+    } catch (err) {
+      showError(`Could not reach the ledger. ${err.message || "Check the service is running."}`);
+    } finally {
+      setLoading(false);
     }
-
-    catch (error) {
-
-        errorMessage.textContent =
-            `Prediction failed: ${error.message}`;
-
-        errorMessage.classList.remove(
-            "hidden"
-        );
-
-    }
-
-    finally {
-
-        predictButton.disabled = false;
-
-        predictButton.textContent =
-            "Predict Credit Risk";
-    }
-
-});
-
-
-resetButton.addEventListener(
-    "click",
-    function () {
-
-        form.reset();
-
-        result.classList.add("hidden");
-
-        errorMessage.classList.add(
-            "hidden"
-        );
-
-        probabilityBar.style.width = "0%";
-
-        window.scrollTo({
-            top: 0,
-            behavior: "smooth"
-        });
-
-    }
-);
+  });
+})();

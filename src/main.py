@@ -2,29 +2,26 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
 import joblib
-from contextlib import asynccontextmanager
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-ml_model = {}
 
+# Load model when the application starts
+model = joblib.load(
+    "notebooks/credit_risk_model.pkl"
+)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Load the model at startup
-    ml_model["model"] = joblib.load(
-        "notebooks/credit_risk_model.pkl"
-    )
-    ml_model["threshold"] = joblib.load(
+threshold = float(
+    joblib.load(
         "notebooks/best_threshold.pkl"
     )
-
-    yield
-
-    ml_model.clear()
+)
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Credit Risk Prediction API",
+    description="Credit risk prediction using machine learning.",
+    version="1.0.0"
+)
 
 
 class LoanApplication(BaseModel):
@@ -43,19 +40,36 @@ class LoanApplication(BaseModel):
 
 @app.post("/predict")
 def predict(data: LoanApplication):
-    input_df = pd.DataFrame([data.model_dump()])
 
-    probability = ml_model["model"].predict_proba(input_df)[:, 1][0]
+    input_df = pd.DataFrame([
+        data.model_dump()
+    ])
+
+    probability = float(
+        model.predict_proba(input_df)[0, 1]
+    )
 
     prediction = int(
-        probability >= ml_model["threshold"]
+        probability >= threshold
     )
 
     return {
         "default_probability": probability,
         "default_prediction": prediction,
-        "threshold": ml_model["threshold"],
-        "Result": "High Risk" if prediction == 1 else "Low Risk"
+        "threshold": threshold,
+        "Result": (
+            "High Risk"
+            if prediction == 1
+            else "Low Risk"
+        )
     }
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+app.mount(
+    "/",
+    StaticFiles(
+        directory="static",
+        html=True
+    ),
+    name="static"
+)
